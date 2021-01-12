@@ -1,5 +1,4 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System;
 using UnityEngine;
 
 public class Character : MonoBehaviour
@@ -13,40 +12,83 @@ public class Character : MonoBehaviour
         Attack,
         BeginShoot,
         Shoot,
+        BeginPunch,
+        Punch,
+        BeginDying,
+        Dead,
     }
 
     public enum Weapon
     {
         Pistol,
         Bat,
+        Fist,
     }
 
-    Animator animator;
-    State state;
+    private Animator animator;
+    private State state;
 
     public Weapon weapon;
     public Transform target;
+    public TargetIndicator targetIndicator;
     public float runSpeed;
     public float distanceFromEnemy;
-    Vector3 originalPosition;
-    Quaternion originalRotation;
+    private Vector3 originalPosition;
+    private Quaternion originalRotation;
+    private Health health;
+    private static readonly int Death = Animator.StringToHash("Death");
+    private static readonly int Speed = Animator.StringToHash("Speed");
+    private static readonly int Punch = Animator.StringToHash("Punch");
+    private static readonly int Shoot = Animator.StringToHash("Shoot");
+    private static readonly int MeleeAttack = Animator.StringToHash("MeleeAttack");
 
     void Start()
     {
         animator = GetComponentInChildren<Animator>();
         state = State.Idle;
+        health = GetComponent<Health>();
+        targetIndicator = GetComponentInChildren<TargetIndicator>(true);
         originalPosition = transform.position;
         originalRotation = transform.rotation;
     }
 
+    public bool IsIdle()
+    {
+        return state == State.Idle;
+    }
+
+    public bool IsDead()
+    {
+        return state == State.BeginDying || state == State.Dead;
+    }
+
     public void SetState(State newState)
     {
+        if (IsDead())
+            return;
+
         state = newState;
     }
 
-    [ContextMenu("Attack")]
-    void AttackEnemy()
+    public void DoDamage()
     {
+        if (IsDead())
+            return;
+
+        health.ApplyDamage(1.0f); // FIXME: захардкожено
+        if (health.current <= 0.0f)
+            state = State.BeginDying;
+    }
+
+    [ContextMenu("Attack")]
+    public void AttackEnemy()
+    {
+        if (IsDead())
+            return;
+
+        Character targetCharacter = target.GetComponent<Character>();
+        if (targetCharacter.IsDead())
+            return;
         switch (weapon) {
             case Weapon.Bat:
                 state = State.RunningToEnemy;
@@ -54,6 +96,11 @@ public class Character : MonoBehaviour
             case Weapon.Pistol:
                 state = State.BeginShoot;
                 break;
+            case Weapon.Fist:
+                state = State.RunningToEnemy;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException();
         }
     }
 
@@ -86,23 +133,26 @@ public class Character : MonoBehaviour
         switch (state) {
             case State.Idle:
                 transform.rotation = originalRotation;
-                animator.SetFloat("Speed", 0.0f);
+                animator.SetFloat(Speed, 0.0f);
                 break;
 
             case State.RunningToEnemy:
-                animator.SetFloat("Speed", runSpeed);
-                if (RunTowards(target.position, distanceFromEnemy))
-                    state = State.BeginAttack;
-                break;
+                animator.SetFloat(Speed, runSpeed);
+                if (RunTowards(target.position, distanceFromEnemy)){
+                    switch (weapon) {
+                        case Weapon.Bat:
+                            state = State.BeginAttack;
+                            break;
 
-            case State.RunningFromEnemy:
-                animator.SetFloat("Speed", runSpeed);
-                if (RunTowards(originalPosition, 0.0f))
-                    state = State.Idle;
+                        case Weapon.Fist:
+                            state = State.BeginPunch;
+                            break;
+                    }
+                }
                 break;
 
             case State.BeginAttack:
-                animator.SetTrigger("MeleeAttack");
+                animator.SetTrigger(MeleeAttack);
                 state = State.Attack;
                 break;
 
@@ -110,12 +160,36 @@ public class Character : MonoBehaviour
                 break;
 
             case State.BeginShoot:
-                animator.SetTrigger("Shoot");
+                animator.SetTrigger(Shoot);
                 state = State.Shoot;
                 break;
 
             case State.Shoot:
                 break;
+
+            case State.BeginPunch:
+                animator.SetTrigger(Punch);
+                state = State.Punch;
+                break;
+
+            case State.Punch:
+                break;
+
+            case State.RunningFromEnemy:
+                animator.SetFloat(Speed, runSpeed);
+                if (RunTowards(originalPosition, 0.0f))
+                    state = State.Idle;
+                break;
+
+            case State.BeginDying:
+                animator.SetTrigger(Death);
+                state = State.Dead;
+                break;
+
+            case State.Dead:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException();
         }
     }
 }
